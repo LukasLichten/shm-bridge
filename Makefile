@@ -15,7 +15,9 @@ acc: build
 	protontricks-launch --appid 805550 ./target/x86_64-pc-windows-gnu/debug/shm-bridge.exe -m acpmf_crewchief acpmf_static acpmf_physics acpmf_graphics -s 15660 2048 2048 2048
 	
 rf2: build
-	@echo "TODO"
+	# There needs to be a way to pass in $ marks, they are required for rf2
+	# Also need to determine File size
+	protontricks-launch --appid 365960 ./target/x86_64-pc-windows-gnu/debug/shm-bridge.exe -m \$rFactor2SMMP_Scoring$ \$rFactor2SMMP_Telemetry$ -s 50000 50000
 
 clear: clean-up
 	cargo clean
