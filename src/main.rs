@@ -1,5 +1,6 @@
 // Copyright (c) 2014 Jared Stafford (jspenguin@jspenguin.org)
 // Copyright (c) 2024 Damir Jelić
+// Copyright (c) 2024 Lukas Lichten
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -25,7 +26,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
 use clap::Parser;
 use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_TEMPORARY;
 
@@ -46,21 +47,17 @@ const LONG_ABOUT: &str = "Shared Memory Bridge facilitates sharing memory betwee
                           guiding you through the necessary steps to set up and run the bridge\n\
                           within your specific environment.";
 
-// TODO: Support something besides Assetto Corsa.
-/// The list of shared memory mappings AC/ACC create.
-const ACC_FILES: &[&str] = &["acpmf_crewchief", "acpmf_static", "acpmf_physics", "acpmf_graphics"];
-
 #[derive(Parser)]
 #[command(author, version, about, long_about = LONG_ABOUT)]
-struct Cli {}
+struct Cli {
+    #[arg(short, long, num_args(1..), help = "name of the shared memory map (can pass multiple to define multiple maps)")]
+    map: Vec<String>,
 
-// TODO: Should we use the real structs from simetry for this? Seems a bit
-// overkill.
-fn file_size(name: &str) -> usize {
-    match name {
-        "acpmf_crewchief" => 15660,
-        _ => 2048,
-    }
+    #[arg(short, long, num_args(1..), help = "size of the shared memory map (has to be the same number as map arguments)")]
+    size: Vec<usize>,
+
+    #[arg(long, help = "doesn't launch the bridge, instead cleans up /dev/shm from these maps (in case of hard termination of the bridge) and exits")]
+    clean_up: bool
 }
 
 fn find_shm_dir() -> PathBuf {
@@ -128,18 +125,33 @@ fn create_file_mapping(dir: &Path, file_name: &str, size: usize) -> Result<FileM
 }
 
 fn main() -> Result<()> {
-    let _ = Cli::parse();
-
-    let mut mappings = Vec::new();
+    let args = Cli::parse();
+    if args.size.len() != args.map.len() && !args.clean_up {
+        println!("Error: Incorrect Argument count, --map has to have the same as --size (found {}:{})", args.map.len(), args.size.len());
+        println!("Exiting...");
+        std::process::exit(1); // Could we pass Err? Maybe, but this is good enough right now
+    }
+    if args.map.is_empty() {
+        println!("Error: Require at least one --map (with --size) to be defined!");
+        println!("Exiting...");
+        std::process::exit(1);
+    }
 
     // Find a suitable tmpfs based mountpoint, this is usually `/dev/shm`.
     let shm_dir = find_shm_dir();
 
+    // Handles clean up, where we skip mounting the memory maps
+    if args.clean_up {
+        return clean_up(&args, shm_dir);
+    }
+
+    let mut mappings = Vec::new();
+
+
     println!("Found a tmpfs filesystem at {}", shm_dir.to_string_lossy());
 
-    for file_name in ACC_FILES {
-        let size = file_size(file_name);
-        let mapping = create_file_mapping(&shm_dir, file_name, size)
+    for (file_name, size) in args.map.iter().zip(args.size.iter()) {
+        let mapping = create_file_mapping(&shm_dir, file_name, *size)
             .with_context(|| format!("Error creating a file mapping for {file_name}"))?;
 
         println!("Created a tmpfs backed mapping for {file_name} with size {size}");
@@ -165,12 +177,25 @@ fn main() -> Result<()> {
 
     // The CTRL-C handler has unparked us, somebody wants us to stop running so
     // let's unlink the `/dev/shm` files.
-    for file_name in ACC_FILES {
+    clean_up(&args, shm_dir)?;
+
+    Ok(())
+}
+
+/// This is a sperate function to allow calling later clean up
+/// when the original process is terminated without getting to finish
+/// (sigkill for example)
+fn clean_up(args: &Cli, shm_dir: PathBuf) -> Result<()> {
+    for file_name in args.map.iter() {
         println!("Removing mapping {file_name}");
         let path = shm_dir.join(file_name);
 
-        remove_file(&path)
-            .with_context(|| format!("Could not unlink the /dev/shm backed file {file_name}"))?;
+        if !path.exists() {
+            println!("Failed to unlink /dev/shm/{file_name} as it does not exist");
+        } else {
+            remove_file(&path)
+                .with_context(|| format!("Could not unlink the /dev/shm backed file {file_name}"))?;
+        }
     }
 
     Ok(())

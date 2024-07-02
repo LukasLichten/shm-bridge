@@ -74,8 +74,9 @@ The bridge requires to be run under Wine or Proton, it's recommended to install
 The bridge should be launched inside the container of the application:
 
 ```bash
-$ protontricks-launch --appid APPID shm-bridge.exe
+$ protontricks-launch --appid APPID shm-bridge.exe --map [map_name] --size [map_size]
 ```
+You can pass in multiple maps, but you need to pass as many `--map` as `--size`
 
 ### Finding the application ID
 
@@ -98,7 +99,7 @@ NOTE: A game must be launched at least once before Protontricks can find the gam
 Now you can launch the bridge in the container of the game:
 
 ```bash
-$ protontricks-launch --appid 805550 shm-bridge.exe
+$ protontricks-launch --appid 805550 shm-bridge.exe -m acpmf_crewchief acpmf_static acpmf_physics acpmf_graphics -s 15660 2048 2048 2048
 
 Found a tmpfs filesystem at /dev/shm/
 Created a tmpfs backed mapping for acpmf_crewchief with size 15660
@@ -109,10 +110,27 @@ All mappings were successfully created, press CTRL-C to exit.
 
 ```
 
+### Known Issues with Protontricks
+The flatpak version does not work.  
+Even if you give permission to access the exe (or move it for example into the prefix),
+there is a weird bug relating the fsync, that when the game has been launched you fsync won't launch on this program and you get an fsync error on attempting to mount the memory map.  
+  
+The other bug is that you can't launch the game if this software is running in the prefix already, the game will get stuck on launching till we exit.  
+However, once the game jumps to Running state we can launch fine, and as most games mount the memorymaps only when going into a Session, so we have ample time.  
+
+### Cleaning up
+SigKill and sometimes Ctrl-C actions are consumed by protontricks and terminate our bridge instead of letting it terminate properly.
+This means files are left behind in `dev/shm`.
+This is not a big deal, these files will be overwritten be `shm_bridge` on restart,
+but if you want to clean after improper shutdown use `--clean-up`
+(you will still need to pass the names of the maps)
+
 ## Supported titles
 
-The Shared Memory Bridge currently supports the following titles:
+The Shared Memory Bridge (should) support any title using memory maps,
+but you need to look up the name and size of memory maps for these titles.  
 
+Above launch command works for:
 * [Assetto Corsa][ac]
 * [Assetto Corsa Competizione][acc]
 
@@ -155,19 +173,20 @@ Rust target, please take a look at the [installation](#installation) section.
 Cargo has been set up to use the `x86_64-pc-windows-gnu` target by default. This
 means that, once the correct target has been installed, `cargo
 check`, `build`, or `install` work as expected. Wine has been set up as the
-default runner, which makes `cargo run` work.
+default runner, which makes `cargo run` work.  
+Although `cargo run` is not recommended, is it would run in the default wine prefix instead of the game's protonprefix, you can use `make` for this end goal.
 
 ```bash
-$ cargo run
-   Compiling shm-bridge v0.1.0 (/home/poljar/werk/simracing/shm-bridge)
-    Finished dev [unoptimized + debuginfo] target(s) in 0.36s
-     Running `wine target/x86_64-pc-windows-gnu/debug/shm-bridge.exe`
-Found a tmpfs filesystem at /dev/shm/
-Created a tmpfs backed mapping for acpmf_crewchief with size 15660
-Created a tmpfs backed mapping for acpmf_static with size 2048
-Created a tmpfs backed mapping for acpmf_physics with size 2048
-Created a tmpfs backed mapping for acpmf_graphics with size 2048
-All mappings were successfully created, press CTRL-C to exit.
+$ make help
+Builds and test the shm-bridge
+make:          Builds
+make release:  Builds in release mode
+make ac:       Build and Run Memory Maps in the AC prefix
+make acc:      Build and Run Memory Maps in the ACC prefix
+make rf2:      Build and Run Memory Maps in the rF2 prefix
+make clean-up: Removes Stale Memory Maps
+make clear:    Clean-up but also runs Cargo Clean
+make help:     This Printout
 ```
 
 ## Similar/Related Projects
